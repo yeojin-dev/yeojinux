@@ -3,7 +3,7 @@
 ## 준비물(아래 소스파일을 공식 사이트에서 다운로드)
 
 * [binutils-2.32](https://ftp.gnu.org/gnu/binutils/)
-* [gcc-8.2.0](http://mirrors-usa.go-parts.com/gcc/releases/)
+* [gcc-8.2.0](https://ftp.gnu.org/gnu/gcc/gcc-8.2.0/)
 
 ## 환경변수 설정
 
@@ -50,7 +50,7 @@ sudo make install
 5. 테스트
 
 ```bash
-➜  gcc-8.2.0 /opt/cross/bin/x86_64-pc-linux-ld --help | grep "supported"
+➜  /opt/cross/bin/x86_64-pc-linux-ld --help | grep "supported"
 /opt/cross/bin/x86_64-pc-linux-ld: supported targets: elf64-x86-64 elf32-i386 elf32-iamcu elf32-x86-64 pei-i386 pei-x86-64 elf64-l1om elf64-k1om elf64-little elf64-big elf32-little elf32-big plugin srec symbolsrec verilog tekhex binary ihex
 /opt/cross/bin/x86_64-pc-linux-ld: supported emulations: elf_x86_64 elf32_x86_64 elf_i386 elf_iamcu elf_l1om elf_k1om
 ```
@@ -92,7 +92,7 @@ sudo make install-gcc
 6. 테스트
 
 ```bash
- ➜  gcc-8.2.0 /opt/cross/bin/x86_64-pc-linux-gcc -dumpspecs | grep -A1 multilib_options
+ ➜  /opt/cross/bin/x86_64-pc-linux-gcc -dumpspecs | grep -A1 multilib_options
 *multilib_options:
 m64/m32
 ```
