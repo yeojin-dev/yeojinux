@@ -11,7 +11,7 @@ BootLoader:
 	@echo === Build Complete ===
 	@echo
 
-Disk: 00.BootLoader/BootLoader.bin
+Disk.img: 00.BootLoader/BootLoader.bin
 	@echo
 	@echo === Dist Image Build Start ===
 	@echo
