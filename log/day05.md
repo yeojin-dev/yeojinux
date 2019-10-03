@@ -221,3 +221,199 @@ mov bp, 0xFFFE  ; BP 레지스터의 어드레스를 0xFFFE로 설정
   1. push: SP 어드레스가 가리키는 어드레스에 데이터를 저장하고 SP 레지스터를 감소
   2. pop: SP 레지스터 증가
   3. 대량의 데이터 처리는 데이터 복사와 SP 레지스터의 값 변경으로도 가능
+
+#### C와 어셈블리어 함수
+
+* C의 호출 규약에 맞게 어셈블리어 코드 작성
+
+```c
+PrintMessage(iX, iY, pcString);
+```
+
+```assembly
+push word [ pcString ]  ; 문자열의 어드레스를 스택에 삽입
+push word [ iY ]        ; 화면의 Y 좌표를 스택에 삽입
+push word [ iX ]        ; 화면의 X 좌표를 스택에 삽입
+call PRINTMESSAGE       ; PRINTMESSAGE 함수 호출
+add sp, 6               ; 스택에 삽입된 함수 파라미터 3개(2바이트 * 3개)를 제거
+```
+
+* 함수 구현
+    * 스택 포인터 레지스터는 push, pop 명령에 따라 계속 변하기 때문에 고정된 값을 사용하는 베이스 포인터 레지스터가 효과적
+
+```assembly
+push bp                 ; 베이스 포인터 레지스터를 스택에 삽입
+mov bp, sp              ; 베이스 포인터 레지스터에 스택 포인터 레지스터의 값을 설정, 앞으로는 베이스 포인터 레지스터를 이용해 파라미터에 접근
+push es                 ; ES 세그먼트 레지스터부터 DX 레지스터까지 스택에 삽입, 함수에서 임시로 사용하는 레지스터로 함수의 마지막 부분에서 스택에 삽입된 값을 꺼내 원래 값으로 복원
+push si
+push di
+push ax
+push cx
+push dx
+; 기타 부분 생략
+; 함수를 호출하면 스택에 복귀 어드레스가 삽입되며, 함수의 첫 부분에서 스택 프레임 레지스터를 삽입했음, 그래서 bp + 4 영역부터 읽어들임
+; 16비트 모드이기 때문에 스택의 크기가 2바이트
+mov ax, word [ bp + 4 ] ; 파라미터 1(iX)
+mov bx, word [ bp + 6 ] ; 파라미터 2(iY)
+mov cx, word [ bp + 8 ] ; 파라미터 3(pcString)
+; context switching
+pop dx
+pop cx
+pop ax
+pop di
+pop si
+pop es
+pop bp
+ret                     ; 함수를 호출한 다음 코드의 위치로 복귀
+```
+
+#### 함수 형태로 수정된 PRINTMESSAGE 함수의 코드
+
+```assembler
+; 메시지를 출력하는 함수
+; PARAM: x좌표, y좌표, 문자열
+PRINTMESSAGE:
+    push bp             ; 베이스 포인터 레지스터를 스택에 삽입
+    mov bp, sp          ; 베이스 포인터 레지스터에 스택 포인터 레지스터의 값을 설정
+    ; ES 세그먼트 레지스터부터 DX 레지스터까지 스택에 삽입
+    push es
+    push si
+    push di
+    push ax
+    push cx
+    push dx
+    ; ES 세그먼트 레지스터에 비디오 모드 어드레스 설정
+    mov ax, 0xB800      ; 비디오 메모리 시작 어드레스(0x0B8000)를 세그먼트 레지스터 값으로 변환
+    mov es, ax          ; ES 세그먼트 레지스터에 설정
+
+    ; X, Y의 좌표로 비디오 메모리의 어드레스를 계산함
+    mov ax, word [ bp + 6 ] ; 파라미터 2(화면 좌표 Y)를 AX 레지스터에 설정
+    mov si, 160             ; 한 라인의 바이트 수(2 * 80 컬럼)를 SI 레지스터에 설정
+    mul si                  ; AX 레지스터와 SI 레지스터를 곱하여 화면 Y 어드레스 계산
+    mov di, ax              ; 계산된 화면 Y 어드레스를 DI 레지스터에 설정
+
+    ; X 좌표를 이용해서 2를 곱한 후 최종 어드레스를 구함
+    mov ax, word [ bp + 4 ] ; 파라미터 1(화면 좌표 X)를 AX 레지스터에 설정
+    mov si, 2               ; 한 문자를 나타내는 바이트 수(2)를 SI 레지스터에 설정
+    mul si                  ; AX 레지스터와 SI 레지스터를 곱하여 화면 X 어드레스를 계산
+    mov di, ax              ; 화면 Y 어드레스와 계산된 X 어드레스를 더해서 실제 비디오 메모리 어드레스를 계산
+
+    ; 출력할 문자열의 어드레스
+    mov si, word [ bp + 8 ] ; 파라미터 3(출력할 문자열의 어드레스)
+
+.MESSAGELOOP:               ; 메시지 출력 루프
+    mov cl, byte [ si ]     ; SI 레지스터가 가리키는 문자열 위치에서 한 문자를 CL 레지스터에 복사(CL 레지스터는 CX 레지스터의 하위 1바이트, 문자열은 1바이트면 충분)
+    cmp cl, 0               ; 복사된 문자와 0을 비교
+    je .MESSAGEEND          ; 복사한 문자의 값이 0이면 문자열이 종료되었음을 의미하므로 .MESSAGEEND로 이동하여 문자 출력 종료
+
+    mov byte [ es:di ], cl  ; 0이 아니라면 비디오 메모리 어드레스 0xB800:di에 문자를 출력
+
+    add si, 1               ; SI 레지스터에 1을 더하여 다음 문자열로 이동
+    add di, 2               ; DI 레지스터에 2를 더하여 비디오 메모리의 다음 문자 위치로 이동
+    jmp .MESSAGELOOP        ; 메시지 출력 루프로 이동하여 다음 문자를 출력
+
+.MESSAGEEND:
+    pop dx
+    pop cx
+    pop ax
+    pop di
+    pop si
+    pop es
+    pop bp
+    ret                     ; 함수를 호출한 다음 코드의 위치로 복귀
+```
+
+#### 보호 모드에서 사용되는 세 가지 함수 호출 규약 
+
+* 호출 규약(Calling Convention): 함수를 호출할 때 파라미터와 복귀 어드레스 등을 지정하는 규칙
+
+1. stdcall: 파라미터를 스택에 저장하며, 호출된 쪽에서 스택 정리
+2. cdecl: 파라미터를 스택에 저장하지만, 함수를 호출한 쪽에서 스택 정리
+3. fastcall: 일부 파라미터를 레지스터에 저장하되 나머지는 stdcall과 동일
+
+```c
+int Add(int iA, int iB, int iC)
+{
+    return iA + iB + iC;
+}
+
+void main(void)
+{
+    int iReturn;
+    iReturn = Add(1, 2, 3);
+}
+```
+
+* stdcall은 파라미터를 스택에 넣을 때 오른쪽에서 왼쪽 순서로 넣고 함수의 반환값은 EAX 레지스터를 사용하며 스택에서 파라미터를 제거하는 작업은 호출된 함수가 처리
+
+```assembler
+Add:
+    push ebp                        ; 32비트 베이스 포인터 레지스터를 스택에 삽입
+    mov ebp, esp                    ; 베이스 포인터 레지스터(BP)에 스택 포인터 레지스터(SP) 값을 설정
+    mov eax, dword [ ebp + 8 ]      ; 32비트 파라미터 1(iA)을 32비트 AX 레지스터에 설정
+    add eax, dword [ ebp + 12 ]     ; 파라미터 2
+    add eax, dword [ ebp + 16 ]     ; 파라미터 3
+    pop ebp
+    ret 12                          ; 호출한 함수로 복귀한 후, 스택에 삽입된 파라미터 3개를 제거(3 * 4), "ret" "add esp, 12"와 같은 역할
+
+main:
+    push ebp                        ; BP 스택 삽입
+    mov ebp, esp                    ; BP에 SP 값 설정
+    sub esp, 8                      ; SP 레지스터에서 8만큼을 빼서 지역변수 iReturn을 위한 공간 할당
+    push 3
+    push 2
+    push 1
+    call Add                        ; Add 함수 호출
+    mov dword[ ebp - 4 ], eax       ; iReturn 변수에 Add 함수의 변환값 저장
+    ret
+```
+
+* cdecl 방식은 stdcall 방식과 달리 스택에서 파라미터를 제거하는 작업을 호출 함수가 처리
+
+```assembler
+Add:
+    push ebp                        ; 32비트 베이스 포인터 레지스터를 스택에 삽입
+    mov ebp, esp                    ; 베이스 포인터 레지스터(BP)에 스택 포인터 레지스터(SP) 값을 설정
+    mov eax, dword [ ebp + 8 ]      ; 32비트 파라미터 1(iA)을 32비트 AX 레지스터에 설정
+    add eax, dword [ ebp + 12 ]     ; 파라미터 2
+    add eax, dword [ ebp + 16 ]     ; 파라미터 3
+    pop ebp
+    ret
+
+main:
+    push ebp                        ; BP 스택 삽입
+    mov ebp, esp                    ; BP에 SP 값 설정
+    sub esp, 8                      ; SP 레지스터에서 8만큼을 빼서 지역변수 iReturn을 위한 공간 할당
+    push 3
+    push 2
+    push 1
+    call Add                        ; Add 함수 호출
+    mov dword[ ebp - 4 ], eax       ; iReturn 변수에 Add 함수의 변환값 저장
+    add esp, 12                     ; SP에 12를 더하여 삽입한 파라미터 3개를 제거(cdecl 방식)
+    ret
+```
+
+* fastcall 방식은 컴파일러마다 구현 방식이 다름 - MS 컴파일러의 기준으로는 ECX, EDX 레지스터 삽입하는 점을 제외하고 stdcall과 같음
+* IA-32e 모드의 호출 규약은 fastcall 확장한 방식으로 파라미터 개수를 제한한다면 스택 관련 작업을 줄일 수 있음
+
+```assembler
+Add:
+    push ebp                        ; 32비트 베이스 포인터 레지스터를 스택에 삽입
+    mov ebp, esp                    ; 베이스 포인터 레지스터(BP)에 스택 포인터 레지스터(SP) 값을 설정
+    mov eax, ecx                    ; 32비트 파라미터 1(iA)을 32비트 AX 레지스터에 설정
+    add eax, edx                    ; 파라미터 2
+    add eax, dword [ ebp + 8 ]      ; 파라미터 3(스택에 존재)
+    pop ebp
+    ret 4                           ; 호출한 함수로 복귀한 후, 스택에 삽입된 파라미터 1개를 제거(1 * 4), "ret" "add esp, 4"와 같은 역할
+
+main:
+    push ebp                        ; BP 스택 삽입
+    mov ebp, esp                    ; BP에 SP 값 설정
+    sub esp, 8                      ; SP 레지스터에서 8만큼을 빼서 지역변수 iReturn을 위한 공간 할당
+    push 3
+    mov edx, 2
+    mov ecx, 1
+    call Add                        ; Add 함수 호출
+    mov dword[ ebp - 4 ], eax       ; iReturn 변수에 Add 함수의 변환값 저장
+    ret
+```
