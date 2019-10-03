@@ -87,10 +87,10 @@ READDATA:                       ; 디스크를 읽는 코드의 시작
     mov al, byte [ SECTORNUMBER ]   ; 섹터 번호를 AL 레지스터에 설정
     add al, 0x1                     ; 섹터 번호를 1 증가
     mov byte [ SECTORNUMBER ], al   ; 증가시킨 섹터 번호를 SECTORNUMBER에 다시 설정
-    cmp al, 19                      ; 증가시킨 섹터 번호를 19와 비교
-    jl READDATA                     ; 섹터 번호가 19 미만이라면 READDATA로 이동
+    cmp al, 37                      ; 증가시킨 섹터 번호를 37과 비교
+    jl READDATA                     ; 섹터 번호가 37 미만이라면 READDATA로 이동
 
-    ; 마지막 섹터까지 읽었으면(섹터 번호가 19이면) 헤드를 토글하고 섹터 번호를 1로 설정
+    ; 마지막 섹터까지 읽었으면(섹터 번호가 37이면) 헤드를 토글하고 섹터 번호를 1로 설정
     xor byte[ HEADNUMBER ], 0x01    ; 헤드 번호를 0x01과 XOR 하여 토글
     mov byte[ SECTORNUMBER ], 0x01  ; 섹터 번호를 다시 1로 설정
 
@@ -105,7 +105,7 @@ READDATA:                       ; 디스크를 읽는 코드의 시작
 READEND:
     ; OS 이미지가 완료되었다는 메시지를 출력
     push LOADINGCOMPLETEMESSAGE     ; 출력할 메시지의 어드레스를 스택에 삽입
-    push 2
+    push 1
     push 20
     call PRINTMESSAGE
     add sp, 6
@@ -138,6 +138,12 @@ PRINTMESSAGE:
     mov si, 160                 ; 한 라인의 바이트 수(2 * 80)를 SI 레지스터에 설정
     mul si                      ; AX 레지스터와 SI 레지스터를 곱하여 화면 X 어드레스를 계산
     add di, ax                  ; 화면 Y 어드레스와 계산된 X 어드레스를 더해서 실제 비디오 메모리 어드레스를 계산
+
+    ; X 좌표를 이용해서 2를 곱한 후 최종 어드레스를 구함
+    mov ax, word [ bp + 4 ]
+    mov si, 2
+    mul si
+    add di, ax
 
     ; 출력할 문자열의 어드레스
     mov si, word [ bp + 8 ]     ; 파라미터 3
