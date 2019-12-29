@@ -6,7 +6,7 @@ SECTION .txt                ; text 섹션(세그먼트) 정의
 jmp 0x07C0:START            ; CS 세그먼트 레지스터에 0x07C0을 복사하면서, START 레이블로 이동
 
 ; MINT64 OS에 관련된 환경 설정 값
-TOTALSECTORCOUNT:   dw 1024 ; 부트 로더를 제외한 MINT64 OS 이미지의 크기, 최대 1152섹터(0x90000바이트)까지 가능
+TOTALSECTORCOUNT:   dw 1    ; 부트 로더를 제외한 MINT64 OS 이미지의 크기, 최대 1152섹터(0x90000바이트)까지 가능
 
 ; 코드 영역
 START:
