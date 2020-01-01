@@ -118,7 +118,7 @@ PRINTMESSAGE:
     pop ecx
     pop eax
     pop edi
-    pop eci
+    pop esi
     pop ebp
     ret                         ; 함수를 호출한 다음 코드의 위치로 복귀
 ```
