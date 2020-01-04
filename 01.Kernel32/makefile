@@ -41,7 +41,7 @@ ASSEMBLYSOURCEFILES = $(wildcard ../$(SOURCEDIRECTORY)/*.asm)
 COBJECTFILES = $(subst Main.o, , $(notdir $(patsubst %.c, %.o, $(CSOURCEFILES))))
 ASSEMBLYOBJECTFILES = $(notdir $(patsubst %.asm, %.o, $(ASSEMBLYSOURCEFILES)))
 
-# .c 파일을 .o 파일로 바꾸는 규칙 정의l
+# .c 파일을 .o 파일로 바꾸는 규칙 정의
 %.o: ../$(SOURCEDIRECTORY)/%.c
 	$(GCC32) -c $<
 
