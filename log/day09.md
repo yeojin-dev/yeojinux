@@ -356,7 +356,7 @@ x86_64-pc-linux-objcopy -j .text -j .data -j .rodata -j .bss -S -O binary Kernel
 
 #define TRUE    1
 #define FALSE   0
-#defile NULL    0
+#define NULL    0
 
 // 구조체의 크기 정렬에 관련된 지시어로 구조체의 크기를 1바이트로 정렬하여 추가적인 메모리 공간을 더 할당하지 않도록 설정
 #pragma pack( push, 1)
