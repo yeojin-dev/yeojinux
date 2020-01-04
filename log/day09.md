@@ -280,3 +280,60 @@ x86_64-pc-linux-ld -melf_i386 -T elf_i386.x -nostdlib Main.o -o Main.elf
 2. -T : 링커 스크립트 파일 지정
 3. -nostdlib : 표준 라이브러리 사용하지 않고 링크 수행
 4. -o : 링크하여 생성할 파일 이름
+
+#### 로딩할 메모리 어드레스와 엔트리 포인트 지정
+
+![새롭게 생성된 디스크 이미지의 메모리 배치](https://img1.daumcdn.net/thumb/R720x0.q80/?scode=mtistory2&fname=http%3A%2F%2Fcfile25.uf.tistory.com%2Fimage%2F215CCB3A5812B3EF1829F4)
+
+* 로딩할 메모리 어드레스 지정
+
+1. 링커 스크립트
+
+```
+.text 0x10200                   ; .text 섹션을 0x10200에 로딩하도록 저장
+{
+    (생략)
+}
+```
+
+2. 커맨드 라인 옵션
+
+```bash
+x86_64-pc-linux-ld -melf_i386 -Ttext 0x10200 -nostdlib Main.o -o Main.elf
+```
+
+* 엔트리 포인트 지정
+
+1. 링커 스크립트
+
+```
+OUTPUT_ARCH(i386)
+ENTRY(Main)
+SEARCH_DIR("/usr/cross/x86_64-pc-linux/lib");
+```
+
+2. 커맨드 라인 옵션
+
+```
+x86_64-pc-linux-ld -melf_i386 -e Main -nostdlib Main.o -o Main.elf
+```
+
+* 엔트리 포인트 지정은 빌드 결과물이 OS에 의해 실행 가능한 포맷일 경우에만 의미가 있음
+
+* 특정 함수를 가장 앞에서 실행시킬 방법
+    1. 오브젝트 파일 내 함수 간의 순서 조정
+    2. 실행 파일 내의 함수 간의 순서 조정 : 엔트리 포인트가 포함된 오브젝트 파일을 가장 앞쪽으로 이동
+
+#### 실행 파일을 바이너리 파일로 변환
+
+* 실행 파일은 코드 섹션과 데이터 섹션 이외의 정보를 포함하므로 이를 제거하여 순수한 바이너리 파일 형태로 변환해야 함
+    * objcopy 프로그램을 사용
+
+* objcopy 파일의 옵션
+    1. -j : 실행 파일에서 해당 섹션만 추출
+    2. -S : 실행 파일에서 재배치 정보와 심볼 제거
+    3. -O : 새로 생성할 파일의 옵션
+
+```bash
+x86_64-pc-linux-objcopy -j .text -j .data -j .rodata -j .bss -S -O binary Kernel32.elf Kernel32.bin
+```
