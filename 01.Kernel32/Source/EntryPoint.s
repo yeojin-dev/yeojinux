@@ -41,7 +41,7 @@ PROTECTEDMODE:
     call PRINTMESSAGE
     add esp, 12                                     ; 삽입한 파라미터 제거
 
-    jmp $
+    jmp dword 0x08: 0x10200                         ; C 언어 커널이 존재하는 0x10200 어드레스로 이동하여 C 언어 커널 수행
 
 ; 메시지를 출력하는 함수
 ; 스택에 x 좌표, y 좌표, 문자열
