@@ -337,3 +337,123 @@ x86_64-pc-linux-ld -melf_i386 -e Main -nostdlib Main.o -o Main.elf
 ```bash
 x86_64-pc-linux-objcopy -j .text -j .data -j .rodata -j .bss -S -O binary Kernel32.elf Kernel32.bin
 ```
+
+## C 소스 파일 추가와 보호 모드 엔트리 포인트 통합
+
+### C 소스 파일 추가
+
+1. 여러 소스 파일에서 공통으로 사용할 헤더 파일 생성
+
+```c
+#ifndef __TYPES_H__
+#define __TYPES_H__
+
+#define BYTE    unsigned char
+#define WORD    unsigned char
+#define DWORD   unsigned char
+#define QWORD   unsigned char
+#define BOOL    unsigned char
+
+#define TRUE    1
+#define FALSE   0
+#defile NULL    0
+
+// 구조체의 크기 정렬에 관련된 지시어로 구조체의 크기를 1바이트로 정렬하여 추가적인 메모리 공간을 더 할당하지 않도록 설정
+#pragma pack( push, 1)
+
+// 비디오 모드 중 텍스트 모드 화면을 구성하는 자료구조
+typedef struct kCharactorStruct
+{
+    BYTE bCharactor;
+    BYTE bAttribute;
+} CHARACTER;
+
+#pragma pack( pop )
+#endif /*__TYPES_H__*/
+```
+
+2. 엔트리 포인트 파일
+
+```c
+#include "Types.h"
+
+void kPrintString( int iX, int iY, const char* pcString );
+
+// Main 함수
+void Main(void)
+{
+    kPrintString( 0, 3, "C Language Kernel Started!" );
+    while( 1 );
+}
+
+// 문자열 출력 함수
+void kPrintString ( int iX, int iY, const char* pcString )
+{
+    CHARACTER* pstScreen = ( CHARACTER* ) 0xB8000;
+    int i;
+
+    pstScreen += ( iY * 80 ) + iX;
+    for ( i = 0 ; pcString[ i ] != 0; i++ )
+    {
+        pstScreen[ i ].bCharactor = pcString[ i ];
+    }
+}
+```
+
+### 보호 모드 엔트리 포인트 코드 수정
+
+* CS 세그먼트 셀렉터와 이동할 선형 주소를 jmp 명령에 같이 지정
+
+```assembly
+jmp dword 0x08: 0x10200
+```
+
+### makefile 수정
+
+1. Source 폴더에 .c 확장자의 파일만 추가하면 자동으로 포함하여 빌드하도록 수정
+    * wildcard 함수 이용
+
+```makefile
+CSOURCEFILES = $(wildcard Source/*.c)
+```
+
+2. 파일 패턴에 대해 동일한 빌드 룰 지정
+    * %< : Dependency의 첫 번째 항목
+
+```makefile
+%.o : %.c
+    gcc -c %<
+```
+
+3. 링크할 파일 목록
+    * .c 파일은 파일명은 그대로이면서 확장자만 .o로 변경됨
+    * patsubst 함수 사용
+
+```makefile
+COBJECTFILES = $(patsubst %.c, %.o, $(CSOURCEFILES))
+```
+
+4. C 커널의 엔트리 포인트 오브젝트 파일을 COBJECTFILES의 가장 앞으로 이동
+
+```makefile
+CENTRYPOINTOBJECTFILE = Main.o
+COBJECTFILES = $(patsubst %.c, %.o, $(CSOURCEFILES))
+COHTEROBJECTFILES = $(subst Main.o, , $(COBJECTFILES))
+kernel32.elf: $(CENTRYPOINTOBJECTFILE) $(COBJECTFILES) - Main.o가 가장 앞
+    x86_64-pc-linux-ld -o $@ $^
+```
+
+5. 소스 파일을 모두 검사하여 포함하는 헤더 파일을 모두 makefile의 Dependency에 기록
+
+* -MM : 시스템 헤더 파일을 제외한 나머지 헤더 파일의 의존성을 검사하여 화면에 출력
+
+```bash
+x86_64-pc-linux-gcc -MM Main.c Test.c > Dependency.dep
+```
+
+```makefile
+# wildcard 함수의 결과가 Dependency.dep와 같으면 endif까지의 구문 수행
+ifeq (Dependency.dep, $(wildcard Dependency.dep))
+include Dependency.dep
+endif
+```
