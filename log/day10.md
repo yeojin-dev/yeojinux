@@ -147,14 +147,14 @@ START:
     jc .A20GATEERROR    ; A20 게이트가 활성화가 성공했는지 확인 - 활성화가 실패하면 EFLAGS 레지스터의 CF 비트가 1로 설정되므로 이를 검사
     jmp .A20GATESUCCESS ; 
 
-.A20GATEERROR
+.A20GATEERROR:
     ; 에러 발생 시, 시스템 컨트롤 포트로 전환 시도
     in al, 0x92     ; 시스템 컨트롤 포트(0x92)에서 1바이트를 읽어 AL 레지스터에 저장
     or al, 0x02     ; 읽은 값에 A20 게이트 비트(비트 1)를 1로 설정
     and al, 0xFE    ; 시스템 리셋 방지를 위해 0xFE와 AND 연산하여 비트 0을 0으로 설정
     out 0x92, al    ; 시스템 컨트롤 포트(0x92)에 변경된 값을 1바이트 설정
 
-.A20GATESUCCESS
+.A20GATESUCCESS:
     cli             ; 인터럽트가 발생하지 못 하도록 설정
     lgdt [ GDTR ]   ; GDTR 자료구조를 프로세서에 설정하여 GDT 테이블을 로드
 
@@ -212,7 +212,7 @@ void Main( void )
     }
     else
     {
-        kPrintString( 45, 4, "Pass");
+        kPrintString( 45, 5, "Pass");
     }
 
     while( 1 );
@@ -280,4 +280,5 @@ BOOL kIsMemoryEnough( void )
         // 1MB씩 이동하면서 확인
         pdwCurrentAddress += ( 0x100000 / 4 );
     }
+    return TRUE;
 }
