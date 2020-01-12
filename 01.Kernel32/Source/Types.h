@@ -2,9 +2,9 @@
 #define __TYPES_H__
 
 #define BYTE    unsigned char
-#define WORD    unsigned char
-#define DWORD   unsigned char
-#define QWORD   unsigned char
+#define WORD    unsigned short
+#define DWORD   unsigned int
+#define QWORD   unsigned long
 #define BOOL    unsigned char
 
 #define TRUE    1
