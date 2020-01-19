@@ -91,3 +91,126 @@
 * PAT 필드는 사용하지 않으므로 0
 * 태스크 별로 페이지 매핑을 따로 구성하지 않으므로 G 필드 0으로 설정
 * D 필드 역시 참조하지 않으르몰 0
+
+## 페이지 테이블 생성과 페이징 기능 활성화
+
+### 페이지 엔트리를 위한 자료구조 정의와 매크로 정의
+
+* PML4 엔트리, 페이지 디렉터리 포인터 엔트리, 페이지 디렉터리 엔트리는 내부 필드가 거의 유사하므로 1개의 형태로만 정의
+
+```c
+typedef struct pageTableEntryStruct
+{
+    DWORD dwAttributeAndLowerBaseAddress;
+    DWORD dwUpperBaseAddressAndEXB;
+} PML4ENTRY, PDPTENTRY, PDENTRY, PTENTRY
+```
+
+* dwAttributeAndLowerBaseAddress : 8바이트 크기의 페이지 엔트리 중에 하위 4바이트를 의미. 기준 주소의 하위 필드와 G, PAT, D, A, PCD, PWT, U/S, R/W, P 비트 등을 포함
+* dwUpperBaseAddressAndEXB : 8바이트 크기의 페이지 엔트리 중에 상위 4바이트를 의미. 기준 주소의 상위 필드와 EXB 비트 등을 포함
+
+```c
+// 하위 32비트용 속성 필드
+#define PAGE_FLAGS_P    0x00000001  // Present
+#define PAGE_FLAGS_RW   0x00000002  // Read/Write
+#define PAGE_FLAGS_US   0x00000004  // User/Supervisor(플래그 설정 시 유저 레벨)
+#define PAGE_FLAGS_PWT  0x00000008  // Page Level Write-through
+#define PAGE_FLAGS_PCD  0x00000010  // Page Level Cache Disable
+#define PAGE_FLAGS_A    0x00000020  // Accessed
+#define PAGE_FLAGS_D    0x00000040  // Dirty
+#define PAGE_FLAGS_PS   0x00000080  // Page Size
+#define PAGE_FLAGS_G    0x00000100  // Global
+#define PAGE_FLAGS_PAT  0x00001000  // Page Attribute Table Index
+
+// 상위 32비트용 속성 필드
+#define PAGE_FLAGS_EXB  0x80000000  // Execute Disable 비트
+
+// 기타
+#define PAGE_FLAGS_DEFAULT  ( PAGE_FLAGS_P | PAGE_FLAGS_RW )  // 실제 속성을 나타내지는 않지만 편의를 위해 정의함
+```
+
+### 페이지 엔트리 생성과 페이지 테이블 생성
+
+1. PML4 테이블 엔트리
+    * P, R/W 비트 1로 설정
+    * 나머지 엔트리는 모두 0으로 설정(사용하지 않음)
+
+```c
+// 페이지 엔트리에 데이터를 설정하는 함수
+void kSetPageEntryData( PTENTRY* pstEntry, DWORD dwUpperBaseAddress, DWORD dwLowerBaseAddress, DWORD dwLowerFlags, DWORD dwUpperFlags )
+{
+    pstEntry->dwAttributeAndLowerBaseAddress = dwLowerBaseAddress | dwLowerFlags;
+    pstEntry->dwUpperBaseAddressAndEXB = ( dwUpperBaseAddress & 0xFF ) | dwUpperFlags;
+}
+
+void kInitializePageTables( void )
+{
+    PML4ENTRY* pstPMLEntry;
+    int i;
+
+    pstPMLEntry = ( PML4ENTRY* ) 0x100000;
+    kSetPageEntryData( &( pstPML4TEntry[0] ), 0x00, 0x101000, PAGE_FLAGS_DEFAULT, 0 );
+    for ( i = 1 ; i < 512 ; i++ )
+    {
+        kSetPageEntryData( &( pstPML4Entry[i] ), 0, 0, 0, 0 );
+    }
+}
+```
+
+* 32비트 환경(보호 모드)에서 64비트 어드레스를 표현하기 위해 2개의 변수를 사용함(레지스터가 32비트만 사용할 수 있기 때문)
+
+* 64비트 어드레스를 계산할 때도 32비트 * 2개의 레지스터로 계산하기 때문에 Lower 부분이 4GB를 넘으면 Upper 부분에 1을 더해주어야 함
+
+```c
+pstPDEntry = ( PDENTRY* ) 0x102000;
+dwMappingAddress = 0;
+for ( i = 0 ; i < 512 * 64 ; i++ )
+{
+    kSetPageEntryData( &( pstEntry[i] ), ( i * ( 0x200000 >> 20 ) ) >> 12, dwMappingAddress, PAGE_FLAGS_DEFAULT | PAGE_FLAGS_PS, 0 );
+    dwMappingAddress += PAGE_DEFAULTSIZE;
+}
+```
+
+### 프로세서의 페이징 기능 활성화
+
+![CR0~4 레지스터](https://img1.daumcdn.net/thumb/R800x0/?scode=mtistory2&fname=https%3A%2F%2Ft1.daumcdn.net%2Fcfile%2Ftistory%2F243FB03656234D0220)
+
+* CR0 레지스터의 PG 비트와 CR3/CR4 레지스터의 PAE 비트만 1로 설정하면 페이징 기능 사용
+    * 위 기능을 설정하기 전에 CR3 레지스터에 PML4 테이블의 어드레스 설정 필요함
+
+* CR3 레지스터는 페이지 디렉터리 베이스 레지스터라고도 불리며, 최상위 페이지 테이블의 어드레스를 프로세서에 알리는 역할
+* CR2 레지스터는 페이지 폴트 예외가 발생했을 때 예외가 발생한 선형 주소를 저장
+
+* CR4 컨트롤 레지스터의 필드와 의미
+
+|필드|설명|
+|---|---|
+|SMXE|Safe Mode Extensions Enable의 약자로 SMX 명령어를 사용할지 여부를 결정, 1로 설정하면 SMX를 사용함을 나타내며 0으로 설정하면 사용하지 않음을 나타냄|
+|VMXE|Virtual Machine Extension Enable의 약자로 VMX 명령어를 사용할지 여부를 설정, 1로 설정하면 VMX 명령어를 사용함을 나타내며, 0으로 설정하면 사용하지 않음을 나타냄|
+|OSXMMEXCPT|OS Support for Unmasked SIMD Floating-Point Extensions를 의미하며 SIMD 관련 실수 연산 시 마스크되지 않은 예외가 발생했을 때 예외 처리 방법을 설정, 1로 설정하면 예외가 SIMD Floating-Point Exception으로 발생하며 0으로 설정하면 예외가 Invalid Opcode Exception으로 발생함, 실수 연산을 사용하는 경우 정확한 예외 처리를 위해 1로 설정하는 것을 권장|
+|OSFXSR|OS Support for FXSAVE and FXRSTOR instructions를 의미하며 OS가 FXSAVE/FXRSTOR 명령 및 실수 연산 관련 명령을 지원하는지 여부를 설정, 1로 설정하면 실수 연산 관련 명령을 지원함을 나타내며 0으로 설정하면 실수 연산 관련 명령을 지원하지 않음을 나타냄, 0으로 설정하면 실수를 연산할 때마다 Invaild Opcode Exception이 발생하므로 1로 설정하는 것을 권장|
+|PCE|Performance-Monitoring Counter Enable의 약자로 RDPMC 명령어를 사용할 수 있는 권한 레벨을 설정, 1로 설정하면 모든 레벨에서 사용 가능함을 나타내며 0으로 설정하면 최상위 레벨(0)에서만 사용 가능함을 나타냄|
+|PGE|Page Global Enable의 약자로 Global Page Feature를 사용할지 여부를 결정, 1로 설정하면 Globel Page Feature를 사용함을 나타내며 CR3 레지스터가 교체되어 페이지 테이블이 바뀌는 경우 페이지 엔트리의 PG 비트가 1로 설정된 페이지는 TLB에서 교체 안됨, 0으로 사용하면 Global Page Feature 기능을 사용하지 않음을 나타냄|
+|MCE|Machine-Check Enable의 약자로 Machine-Check 예외를 사용할지 여부를 나타냄, 1로 설정하면 Machine-Check 예외를 사용함을 나타내며, 0으로 설정하면 사용하지 않음을 나타냄|
+|PAE|Physical Address Extensions의 약자로 36비트 이상의 물리 메모리를 사용할지 여부를 나타냄, 1로 설정하면 36비트 이상의 물리 메모리를 사용함을 나타내며, 0으로 설정하면 사용하지 않음을 나타냄, IA-32e 모드에서는 필수적으로 1로 설정해야 함|
+|PSE|Page Size Extensions의 약자로 4KB 또는 그 이상의 페이지 크기를 사용할지 여부를 설정, 1로 설정할 경우 2MB 또는 4MB 페이지를 사용함을 나타내며 0으로 설정할 경우 4KB 페이지를 사용함을 나타냄, PAE가 1로 설정될 경우 PSE 비트는 무시되며 페이지 디렉터리 엔트리의 PS 비트에 의해 페이지 크기가 설정됨|
+|DE|Debugging Extensions의 약자로 DR4와 DR5 레지스터에 접근을 허락할지 여부를 설정, 1로 설정하면 DR4, DR5 레지스터는 프로세서에 의해 예약되며 해당 레지스터에 접근할 경우 Undefined Opcode Exception이 발생, 0으로 설정하면 DR4, DR5 레지스터는 각각 DR6, DR7 레지스터의 다른 이름 역할을 함|
+|TSD|Time Stamp Diable의 약자로 RDTSC 명령어를 사용할 수 있는 권한 레벨을 설정, 1로 설정하면 VIF를 사용함을 나타내고 0으로 설정하면 VIF를 사용하지 않음을 나타냄|
+|PVI|Protected-Mode Virtual Interrupts의 약자로 Virtual Interrupt Flag를 사용할지 여부를 설정, 1로 설정하면 VIF를 사용함을 나타내고 0으로 설정하면 VIF를 사용하지 않음을 나타냄|
+|VME|Virtual-8086 Mode Extensions의 약자로 가상 8086 모드에서 Interrupt And Exception-Handling Extensions 사용 여부를 설정, 1로 설정하면 Interrupt And Exception-Handling Extensions 사용함을 나타내고 0으로 설정하면 사용하지 않음을 나타냄|
+
+```assembly
+; PAE 비트를 1로 설정
+mov eax, cr4            ; CR4 컨트롤 레지스터의 값을 EAX에 저장
+or eax, 0x20            ; PAE 비트(비트 5)를 1로 설정
+mov cr4, eax            ; 설정된 값을 다시 CR4 컨트롤 레지스터에 저장
+
+; PML4 테이블의 어드레스와 캐시 활성화
+mov eax, 0x100000       ; EAX 레지스터에 PML4 테이블이 존재하는 0x100000(1MB) 저장
+mov cr3, eax            ; CR3 레지스터에 0x100000(1MB) 저장
+
+; 프로세서의 페이징 기능 활성화
+mov eax, cr0            ; EAX 레지스터에 CR0 컨트롤 레지스터를 저장
+or eax, 0x80000000      ; PG 비트(비트 31)을 1로 설정
+mov cr0, eax            ; 설정된 값을 다시 CR0 컨트롤 레지스터에 저장
+```
