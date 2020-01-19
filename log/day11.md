@@ -166,7 +166,7 @@ pstPDEntry = ( PDENTRY* ) 0x102000;
 dwMappingAddress = 0;
 for ( i = 0 ; i < 512 * 64 ; i++ )
 {
-    kSetPageEntryData( &( pstEntry[i] ), ( i * ( 0x200000 >> 20 ) ) >> 12, dwMappingAddress, PAGE_FLAGS_DEFAULT | PAGE_FLAGS_PS, 0 );
+    kSetPageEntryData( &( pstPDEntry[i] ), ( i * ( 0x200000 >> 20 ) ) >> 12, dwMappingAddress, PAGE_FLAGS_DEFAULT | PAGE_FLAGS_PS, 0 );
     dwMappingAddress += PAGE_DEFAULTSIZE;
 }
 ```
@@ -262,7 +262,7 @@ typedef struct kPageTableEntryStruct
     DWORD dwAttributeAndLowerBaseAddress;
     // 8비트 Upper BaseAddress, 12비트 Reserved, 11비트 Avail, 1비트 EXB
     DWORD dwUpperBaseAddressAndEXB;
-} PWL4TENTRY, PDPTENTRY, PDENTRY, PTENTRY;
+} PML4TENTRY, PDPTENTRY, PDENTRY, PTENTRY;
 #pragma pack( pop )
 
 // 함수
@@ -281,7 +281,7 @@ void kSetPageEntryData( PTENTRY* pstEntry, DWORD dwUpperBaseAddress, DWORD dwLow
 void kInitializePageTables( void )
 {
     PML4TENTRY* pstPML4TEntry;
-    PDPTENDRY* pstPDPTEntry;
+    PDPTENTRY* pstPDPTEntry;
     PDENTRY* pstPDEntry;
     DWORD dwMappingAddress;
     int i;
@@ -317,7 +317,7 @@ void kInitializePageTables( void )
     {
         // 32비트로는 상위 어드레스를 표현할 수 없으므로, MB 단위로 계산한 다음
         // 최종 결과를 다시 4KB로 나누어 32비트 이상의 어드레스를 계산함
-        kSetPageEntryData( &( pstEntry[i] ), ( i * ( 0x200000 >> 20 ) ) >> 12, dwMappingAddress, PAGE_FLAGS_DEFAULT | PAGE_FLAGS_PS, 0 );
+        kSetPageEntryData( &( pstPDEntry[i] ), ( i * ( 0x200000 >> 20 ) ) >> 12, dwMappingAddress, PAGE_FLAGS_DEFAULT | PAGE_FLAGS_PS, 0 );
         dwMappingAddress += PAGE_DEFAULTSIZE;
     }
 }
