@@ -1,4 +1,5 @@
 #include "Types.h"
+#include "Page.h"
 
 // 함수 선언
 void kPrintString( int iX, int iY, const char* pcString );
@@ -37,6 +38,11 @@ void Main( void )
     {
         kPrintString( 45, 5, "Pass");
     }
+
+    // IA-32e 모드 커널을 위한 페이지 테이블 생성
+    kPrintString( 0, 6, "IA-32e Page Tables Initialize...............[    ]" );
+    kInitializePageTables();
+    kPrintString( 45, 6, "Pass" );
 
     while( 1 );
 }
