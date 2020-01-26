@@ -292,3 +292,154 @@ mov rbp, 0x6FFF8
 
 ; 생략
 ```
+
+## IA-32e 모드용 커널 준비
+
+### 커널 엔트리 포인트 파일 생성
+
+* IA-32e 모드 커널 엔트리 포인트는 세그먼트 레지스터 교체, C언어 커널 엔트리 포인트 함수를 호출하는 역할
+
+#### 커널 엔트리 포인트 파일
+
+```assembly
+[BITS 64]   ; 이하 코드는 64비트 코드로 설정
+
+SECTION .text
+
+extern Main ; 외부에서 정의된 함수를 쓸 수 있도록 선언함
+
+; 코드 영역
+START:
+    mov ax, 0x10    ; IA-32e 모드 커널용 데이터 세그먼트 디스크립터를 AX 레지스터에 저장
+    mov ds, ax      ; DS 세그먼트 셀렉터에 설정
+    mov es, ax      ; ES 세그먼트 셀렉터에 설정
+    mov fs, ax      ; FS 세그먼트 셀렉터에 설정
+    mov gs, ax      ; GS 세그먼트 셀렉터에 설정
+    
+    ; 스택을 0x600000~0x6FFFFF 영역에 1MB 크기로 설정
+    mov ss, ax      ; SS 세그먼트 셀렉터에 설정
+    mov rsp, 0x6FFFF8   ; RSP 레지스터의 어드레스를 0x6FFFF8 설정
+    mov rbp, 0x6FFFF8   ; RBP 레지스터의 어드레스를 0x6FFFF8 설정
+
+    call Main       ; C언어 엔트리 포인트 함수(Main) 호출
+
+    jmp $
+```
+
+#### C언어 엔트리 포인트 파일 생성
+
+```c
+#include "Types.h"  // 보호 모드와 같은 파일 사용
+
+// 함수 선언
+void kPrintString( int iX, int iY, const char* pcString );
+
+void Main( void )
+{
+    kPrintString( 0, 10, "Switch To IA-32e Mode Success~!!" );
+    kPrintString( 0, 11, "IA-32e C Language Kernel Start..............[Pass]" );
+}
+
+void kPrintString( int iX, int iY, const char* pcString )
+{
+    CHARACTER* pstScreen = ( CHARACTER* ) 0xB8000;
+    int i;
+    
+    // X, Y 좌표를 이용해서 문자열을 출력할 어드레스를 계산
+    pstScreen += ( iY * 80 ) + iX;
+
+    // NULL이 나올 때까지 문자열 출력
+    for( i = 0 ; pcString[ i ] != 0 ; i++ )
+    {
+        pstScreen[ i ].bCharactor = pcString[ i ];
+    }
+}
+```
+
+#### 링커 스크립트 파일 생성(02.Kernel64/elf_x86_64.x)
+
+* 0x200000(2MB) 어드레스에 복사되어 실행될 것이므로 커널 이미지를 생성할 때 별도의 링크 스크립트 파일 필요함
+    * 내용이 길어 교재에서 파일 복사해와 사용
+
+#### makefile 생성
+
+```makefile
+# 빌드 환경 및 규칙 설정 
+
+# 컴파일러 및 링커 정의
+NASM64 = nasm -f elf64
+GCC64 = x86_64-pc-linux-gcc.exe -c -m64 -ffreestanding
+LD64 = x86_64-pc-linux-ld.exe -melf_x86_64 -T ../elf_x86_64.x -nostdlib -e Main -Ttext 0x200000
+
+# 바이너리 이미지 생성을 위한 OBJCOPY 옵션 정의
+OBJCOPY64 = x86_64-pc-linux-objcopy -j .text -j .data -j .rodata -j .bss -S -O binary
+
+# 디렉터리 정의
+OBJECTDIRECTORY = Temp
+SOURCEDIRECTORY	= Source
+
+# 빌드 항목 및 빌드 방법 설정
+
+# 기본적으로 빌드를 수행할 목록
+all: prepare Kernel64.bin
+
+# 오브젝트 파일이 위치할 디렉터리를 생성
+prepare:
+	mkdir -p $(OBJECTDIRECTORY)
+
+# 커널의 C 소스 파일에 대한 의존성 정보 생성
+dep:
+	@echo === Make Dependancy File ===
+	make -C $(OBJECTDIRECTORY) -f ../makefile InternalDependency
+	@echo === Dependancy Search Complete ===
+
+# 디렉터리를 오브젝트 파일 디렉터리로 이동해서 의존성 파일 및 실행 파일을 생성
+ExecuteInternalBuild: dep
+	make -C $(OBJECTDIRECTORY) -f ../makefile Kernel64.elf
+
+# 커널 이미지를 바이너리 파일로 변환하여 IA-32e 모드 바이너리 생성
+Kernel64.bin: ExecuteInternalBuild
+	$(OBJCOPY64) $(OBJECTDIRECTORY)/Kernel64.elf $@
+		
+# 소스 파일을 제외한 나머지 파일 정리	
+clean:
+	rm -f *.bin
+	rm -f $(OBJECTDIRECTORY)/*.*
+
+# Make에 의해 다시 호출되는 부분, Temp 디렉터리를 기준으로 수행됨
+
+# 빌드할 어셈블리어 엔트리 포인트 소스 파일 정의, Temp 디렉터리를 기준으로 설정
+ENTRYPOINTSOURCEFILE = ../$(SOURCEDIRECTORY)/EntryPoint.s
+ENTRYPOINTOBJECTFILE = EntryPoint.o
+
+# 빌드할 C 소스 파일 정의, Temp 디렉터리를 기준으로 설정
+CSOURCEFILES = $(wildcard ../$(SOURCEDIRECTORY)/*.c)
+ASSEMBLYSOURCEFILES = $(wildcard ../$(SOURCEDIRECTORY)/*.asm)
+COBJECTFILES = $(notdir $(patsubst %.c,%.o,$(CSOURCEFILES)))
+ASSEMBLYOBJECTFILES = $(notdir $(patsubst %.asm,%.o,$(ASSEMBLYSOURCEFILES)))
+
+# 어셈블리어 엔트리 포인트 빌드
+$(ENTRYPOINTOBJECTFILE): $(ENTRYPOINTSOURCEFILE)
+	$(NASM64) -o $@ $<
+
+# .c 파일을 .o 파일로 바꾸는 규칙 정의
+%.o: ../$(SOURCEDIRECTORY)/%.c
+	$(GCC64) -c $<
+
+# .asm 파일을 .o 파일로 바꾸는 규칙 정의
+%.o: ../$(SOURCEDIRECTORY)/%.asm
+	$(NASM64) -o $@ $<
+
+# 실제 의존성에 관련된 파일을 생성
+InternalDependency:
+	$(GCC64) -MM $(CSOURCEFILES) > Dependency.dep
+
+# 실제 커널 이미지를 빌드
+Kernel64.elf: $(ENTRYPOINTOBJECTFILE) $(COBJECTFILES) $(ASSEMBLYOBJECTFILES)
+	$(LD64) -o $@ $^
+
+# 현재 디렉터리의 파일 중, dependency 파일이 있으면 make에 포함	
+ifeq (Dependency.dep, $(wildcard Dependency.dep))
+include Dependency.dep
+endif
+```
