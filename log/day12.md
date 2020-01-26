@@ -156,7 +156,7 @@ GDT:
     IA_32eDATADESCRIPTOR:
         dw 0xFFFF   ; Limit[15:0]
         dw 0x0000   ; Base[15:0]
-        dx 0x00     ; Base[23:16]
+        db 0x00     ; Base[23:16]
         db 0x92     ; P=1, DPL=0, Data Segment, Read/Write
         db 0xAF     ; G=0, D=0, L=1, Limit[19:16]
         db 0x00     ; Base[31:24]
@@ -255,7 +255,7 @@ mov cr3, eax        ; CR3 컨트롤 레지스터에 0x100000(1MB) 저장
 ```assembly
 mov ecx, 0xC0000080 ; IA32_EFER MSR 어드레스 저장
 rdmsr               ; MSR 읽기
-or eax 0x0100       ; IA32_EFER MSR의 하위 32비트에서 LME 비트(비트 8)을 1로 설정
+or eax, 0x0100       ; IA32_EFER MSR의 하위 32비트에서 LME 비트(비트 8)을 1로 설정
 wrmsr               ; MSR 쓰기
 ```
 
