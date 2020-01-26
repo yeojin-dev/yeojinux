@@ -206,3 +206,89 @@ PROTECTEDMODE:
 
     jmp dword 0x18: 0x10200 ; C언어 커널이 존재하는 0x10200 어드레스로 이동하여 커널 수행, 코드 디스크립터의 기준 주소가 0x0000이기 때문에 선형 주소와 물리 주소가 같은 상태
 ```
+
+## IA-32e 모드 전환과 1차 정리
+
+### 물리 메모리 확장 기능 활성화와 페이지 테이블 설정
+
+* 물리 메모리 확장(PAE, Physical Address Extensions): CR4 레지스터의 PAE 비트(비트 5)가 담당하고 있으며 PAE 비트를 1로 설정해서 물리 메모리 확장 기능을 사용할 수 있음
+
+```assembly
+; CR4 컨트롤 레지스터의 PAE 비트를 1로 설정
+mov eax, cr4        ; CR4 컨트롤 레지스터의 값을 EAX 레지스터에 저장
+or eax, 0x20        ; PAE 비트(비트 5)를 1로 설정
+mov cr4, eax        ; PAE 비트가 1로 설정된 값을 CR4 컨트롤 레지스터에 저장
+
+; CR3 컨트롤 레지스터에 PML4 테이블의 어드레스 및 캐시 활성화
+mov eax, 0x100000   ; EAX 테이블에 PM4 테이블이 존재하는 0x100000(1MB) 저장
+mov cr3, eax        ; CR3 컨트롤 레지스터에 0x100000(1MB) 저장
+```
+
+### 64비트 모드 활성화와 페이징 활성화
+
+* MSR(Model-Specific Register): 프로세서 모델에 따라 특수하게 정의된 레지스터로 크기는 64비트
+    1. Debugging And Performance Monitoring
+    2. Machine-Check
+    3. Memory Type Range Registers, MTRRs
+    4. Thermal And Power Management
+    5. Instruction-Specific Support
+    6. Processor Feature/Mode Support
+
+* MSR은 MSR용 명령어인 RDMSR(Read From MSR), WRMSR(Write To MSR) 명령어를 사용해야만 함
+    * ECX 레지스터에 읽을 MSR 어드레스를 넘겨주면 상위 32비트는 EDX, 하위 32비트는 EAX 레지스터에 저장
+
+* IA32_EFER(Extended Feature Enable Register)는 프로세서 특성과 모드 지원에 속하는 MSR
+    * SYSCALL/SYSRET 사용, IA-32e 모드 사용, EXB 사용 등을 제어 가능
+    * IA32_EFER 어드레스는 0xC0000080 어드레스
+
+* IA32_EFER 비트 구성
+    * 63~12: 제조사마다 다름
+    * 11(NXE): (읽기, 쓰기)No-Execute Enable의 약자로 Execute Disable 비트를 사용할지 여부를 표시, 1로 설정하면 페이지 엔트리의 EXB 비트 값에 따라 실행 불가 기능이 활성화/비활성화 됨, 0으로 설장하면 EXB 비트가 무시됨
+    * 10(LMA): (읽기 전용)Long Mode Active의 약자로 현재 동작 중인 모드가 IA-32e 모드인지 여부를 표시, 1로 설정하면 프로세서 모드가 IA-32e 모드(호환 모드 또는 64비트)임을 나타내며, 0으로 설정하면 기타 모드임을 나타냄
+    * 9: 예약됨
+    * 8(LME): (읽기, 쓰기)Long Mode Enalbe의 약자로 IA-32e 모드를 활성화함을 의미, 1로 설정하면 IA-32e 모드를 활성화함을 나타내며 0으로 설정하면 비활성화함을 나타냄
+    * 7~1: 예약됨
+    * 0(SCE): (읽기 쓰기)System Call Enable의 약자로 SYSCALL, SYSRET 명령어를 사용할지 여부를 의미, 1로 설정하면 SYSCALL, SYSRET 명령어를 사용함을 나타내며, 0으로 설정하면 사용하지 않음
+
+* LME 비트를 1로 설정하는 코드 추가
+
+```assembly
+mov ecx, 0xC0000080 ; IA32_EFER MSR 어드레스 저장
+rdmsr               ; MSR 읽기
+or eax 0x0100       ; IA32_EFER MSR의 하위 32비트에서 LME 비트(비트 8)을 1로 설정
+wrmsr               ; MSR 쓰기
+```
+
+### IA-32e 모드로 전환과 세그먼트 셀렉터 초기화
+
+* CR0 레지스터 변경해 캐시, 페이징 활성화 이후 세그먼트 셀렉터를 IA-32e 커널용으로 교체
+
+* 캐시 활성화
+    * CR0 레지스터의 NW 비트(비트 29), CD 비트(비트 30) 0으로 설정
+    * 페이지 테이블의 PCD 비트, PWT 비트 활성화
+
+```assembly
+; CR0 컨트롤 레지스터를 NW 비트(비트 29) 0, CD 비트(비트 30) 0, PG 비트(비트 31) 1로 설정하여 캐시 기능과 페이지 기능을 활성화
+mov eax, cr0
+or eax, 0xE0000000  ; NW, CD, PG 비트 모두 1로 설정
+xor eax, 0x60000000 ; NW, CD 비트 XOR하여 0으로 설정
+mov cr0, eax
+
+jmp 0x08: 0x200000  ; CS 세그먼트 셀렉터를 IA-32e 모드용 코드 세그먼트 디스크립터로 교체하교 0x200000(2MB) 어드레스로 이동
+
+; 0x200000(2MB) 어드레스에 위치하는 코드
+[BITS 64]
+; 기타 세그먼트 셀렉터를 IA-32e 모드용 데이터 세그먼트 디스크립터로 교체
+mov ax, 0x10
+mov ds, ax
+mov es, ax
+mov fs, ax
+mov gs, ax
+
+; 스택을 0x600000~0x6FFFFF 영역에 1MB 크기로 생성
+mov ss, ax
+mov rsp, 0x6FFF8
+mov rbp, 0x6FFF8
+
+; 생략
+```
