@@ -125,3 +125,84 @@ else
     kPrintString( 0, 0, "Fail" );
 }
 ```
+
+## IA-32e 모드용 세그먼트 디스크립터 추가
+
+### 보호 모드 커널 엔트리 포인트에 디스크립터 추가
+
+* 보호 모드용 커널 디스크립터를 기반으로 L 비트를 1, D 비트를 0으로 설정
+
+```assembly
+GDT:
+    ; null 디스크립터
+    NULLDescriptor:
+        dw 0x0000
+        dw 0x0000
+        db 0x00
+        db 0x00
+        db 0x00
+        db 0x00
+    
+    ; IA-32e 모드 커널용 코드 세그먼트 디스크립터
+    IA_32eCODEDESCRIPTOR:
+        dw 0xFFFF   ; Limit[15:0]
+        dw 0x0000   ; Base[15:0]
+        db 0x00     ; Base[23:16]
+        db 0x9A     ; P=1, DPL=0, Code Segment, Execute/Read
+        db 0xAF     ; G=1, D=0, L=1, Limit[19:16]
+        db 0x00     ; Base[31:24]
+    
+    ; IA-32e 모드 커널용 데이터 세그먼트 디스크립터
+    IA_32eDATADESCRIPTOR:
+        dw 0xFFFF   ; Limit[15:0]
+        dw 0x0000   ; Base[15:0]
+        dx 0x00     ; Base[23:16]
+        db 0x92     ; P=1, DPL=0, Data Segment, Read/Write
+        db 0xAF     ; G=0, D=0, L=1, Limit[19:16]
+        db 0x00     ; Base[31:24]
+
+    ; 보호 모드 커널용 코드 세그먼트 디스크립터
+    ; 0~4GB 전체 영역을 포함하고 있기 때문에 선형 주소가 물리 주소와 일치
+    CODEDESCRIPTOR:
+        dw 0xFFFF       ; Limit[15:0]
+        dw 0x0000       ; Base[15:0]
+        db 0x00         ; Base[23:16]
+        db 0x9A         ; P=1, DPL=0, Code Segment, Excute/Read
+        db 0xCF         ; G=1, D/B=1, L=0, Limit[19:16]
+        db 0x00         ; Base[31:24]
+
+    ; 보호 모드 커널용 데이터 세그먼트 디스크립터
+    ; 0~4GB 전체 영역을 포함하고 있기 때문에 선형 주소가 물리 주소와 일치
+    DATADESCRIPTOR:
+        dw 0xFFFF       ; Limit[15:0]
+        dw 0x0000       ; Base[15:0]
+        db 0x00         ; Base[23:16]
+        db 0x92         ; P=1, DPL=0, Data Segment, Read/Write
+        db 0xCF         ; G=1, D/B=1, L=0, Limit[19:16]
+        db 0x00         ; Base[31:24]
+GDTEND:
+```
+
+* 이전과 달리 보호 모드용 코드/데이터 세그먼트 디스크립터는 0x08/0x10에서 0x18/0x20으로 변경되었으므로 엔트리 포인트 파일 수정
+
+```assembly
+START:
+    
+    ; 생략
+
+    ; jmp dword 0x18 보호 모드 커널용 코드 세그먼트 디스크립터를 0x18fh dlehd
+    ; PROTECTEDMODE - $$ 레이블에서 현재 세그먼트의 시작 어드레스를 뺐으므로 .text 섹션에서 떨어진 오프셋을 나타냄
+    ; $$ 세그먼트의 시작 어드레스
+    ; PROTECTEDMODE - $$ + 0x10000 보호 모드 엔트리 포인트는 0x10000 어드레스에 로딩되므로 ( PROTECTEDMODE - $$ )에 0x10000을 더해주면 PROTECTEDMODE 레이블의 절대 어드레스를 구할 수 있음
+    ; 0x18
+    jmp dword 0x18: ( PROTECTEDMODE - $$ + 0x10000 )
+
+; 보호 모드로 진입
+[BITS 32]
+PROTECTEDMODE:
+    mov ax, 0x20    ; 보호 모드 커널용 데이터 세그먼트 디스크립터를 AX 레지스터에 저장
+
+    ; 생략
+
+    jmp dword 0x18: 0x10200 ; C언어 커널이 존재하는 0x10200 어드레스로 이동하여 커널 수행, 코드 디스크립터의 기준 주소가 0x0000이기 때문에 선형 주소와 물리 주소가 같은 상태
+```
