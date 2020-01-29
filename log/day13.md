@@ -48,3 +48,284 @@
 |0xD0|키보드 컨트롤러의 출력 포트 값을 출력 버퍼(포트 0x60)로 복사|
 |0xD1|입력 버퍼(0x60)에 쓴 값을 키보드 컨트롤러의 출력 포트로 복사, 비트 1을 1로 설정하면 A20 게이트 활성화, 비트 0을 0으로 설정하면 프로세서 리셋(PC 재부팅)|
 |0xD4|입력 버퍼(포트 0x60)에 쓴 값을 마우스 디바이스로 송신|
+
+## 키보드 컨트롤러 제어
+
+### 키보드와 키보드 컨트롤러 활성화
+
+* 부트 로더가 실행되기 이전에 BIOS에 의해 키보드 활성화하지만 직접 활성화시키기 위해서는 키보드 디바이스 활성화 커맨드 `0xAE` 전송 필요
+    * 키보드 컨트롤러가 아닌 키보드를 활성화하기 위해서 입력 버퍼에 키보드로 보낼 커맨드를 써야만 함
+    * 키보드가 정상적으로 처리한 경우 ACK(0xFA) 전송
+
+#### LED와 키보드 활성화에 관련된 키보드 커맨드
+
+|키보드 커맨드|설명|
+|---------|---|
+|0xED|키보드의 LED 상태를 변경, 비트 2를 1로 설정하면 Caps Lock 켜짐, 비트 1을 1로 설정하면 Num Lock 켜짐, 비트 0을 1로 설정하면 Scrool Lock 켜짐|
+|0xF4|키보드 활성화|
+
+* 키보드 컨트롤러는 CPU보다 매우 느리기 때문에 CPU 입장에서는 커맨드 전송 이후 매우 긴 시간을 기다려야 함
+    * 키보드 컨트롤러의 상태 레지스터(포트 0x64)를 이용해 컨트롤러의 상태를 알 수 있음
+
+```c
+// 출력 버퍼(포트 0x60)에 수신된 데이터가 있는지 여부를 반환
+BOOL kIsOutputBufferFull( void )
+{
+    // 상태 레지스터(포트 0x64)에서 읽은 값에 출력 버퍼 상태 비트(비트 0)가 1로 설정되어 있으면 출력 버퍼에 키보드가 전송한 데이터가 존재함
+    if( kInPortByte( 0x64 ) & 0x01 )
+    {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// 입력 버퍼(포트 0x64)에 프로세서가 쓴 데이터가 남아있는지 여부를 반환
+BOOL kIsInputBufferFull( void )
+{
+    // 상태 레지스터(포트 0x64)에서 읽은 값에 입력 버퍼 상태 비트(비트 1)가 1로 설정되어 있으면 아직 키보드가 데이터를 가져가지 않았음
+    if( kInPortByte( 0x64 ) & 0x02 )
+    {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// 키보드 활성화
+BOOL kActivateKeyboard( void )
+{
+    int i;
+    int j;
+
+    // 컨트롤 레지스터(포트 0x64)에 키보드 활성화 커맨드(0xAE)를 전달하여 키보드 디바이스 활성화
+    kOutPortByte( 0x64, 0xAE );
+    
+    // 입력 버퍼(포트 0x60)가 빌 떄까지 기다렸다가 키보드에 활성화 커맨드를 전송
+    // 0xFFFF만큼 루프를 수행할 시간이면 충분이 커맨드가 전송될 수 있음
+    // 0xFFFF 루프를 수행한 이후에도 입력 버퍼(포트 0x60)가 비지 않으면 무시하고 전송
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        if( kIsInputBufferFull() == FALSE )
+        {
+            break;
+        }
+    }
+
+    // 입력 버퍼(포트 0x60)로 키보드 활성화(0xF4) 커맨드를 전달하여 키보드로 전송
+    kOutPortByte( 0x60, 0xF4 );
+
+    // ACK 올 때까지 대기함
+    // ACK가 오기 전에 키보드 출력 버퍼(포트 0x60)에 키 데이터가 저장될 수 있으므로 키보드에서 전달된 데이터를 최대 100개까지 수신하여 ACK를 확인
+    for( j = 0 ; j < 100 ; j++ )
+    {
+        // 0xFFFF만큼 루프를 수행할 시간이면 충분히 커맨드의 응답이 올 수 있음
+        // 0xFFFF 루프를 수행한 이후에도 출력 버퍼(0x60)가 차 있지 않으면 무시하고 읽음
+        for( i = 0 ; i < 0xFFFF ; i++ )
+        {
+            if( kIsOutputBufferFull() == TRUE )
+            {
+                break;
+            }
+        }
+
+        // 출력 버퍼(포트 0x60)에서 읽은 데이터가 ACK(0xFA)이면 성공
+        if( kInPortByte( 0x60 ) == 0xFA )
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+```
+
+```assembly
+; 포트로부터 1바이트를 읽음
+; PARAM: 포트 번호
+kInPortByte:
+    push idx        ; 함수에서 임시로 사용하는 레지스터를 스택에 저장, 함수의 마지막 부분에서 스택에 삽입된 값을 꺼내 복원
+    mov rdx, rdi    ; RDX 레지스터에 파라미터 1(포트 번호)를 저장
+    mov rax, 0      ; RAX 레지스터를 초기화
+    in al, dx       ; DX 레지스터에 저장된 포트 어드레스에서 한 바이트를 읽어 AL 레지스터에 저장, AL 레지스터는 함수의 반환 값으로 사용됨
+    pop rdx         ; 함수에서 사용이 끝난 레지스터를 복원
+    ret             ; 함수를 호출한 다음 코드의 위치로 복귀
+
+; 포트에 1바이트를 씀
+; PARAM: 포트 번호, 데이터
+kOutPortByte:
+    push rdx        ; 함수에서 임시로 사용하는 레지스터를 스택에 저장
+    push rax        ; 함수의 마지막 부분에서 스택에 삽입된 값을 꺼내 복원
+    mov rdx, rdi    ; RDX 레지스터에 파리미터 1(포트 번호)를 저장
+    mov rax, rsi    ; RAX 레지스터에 파라미터 2(데이터)를 저장
+    out dx, al      ; DX 레지스터에 저장된 포트 어드레스에 AL 레지스터에 저장된 한 바이트를 씀
+    pop rax         ; 함수에서 사용이 끝난 레지스터를 복원
+    pop rdx
+    ret
+```
+
+### IA-32e 모드의 호출 규약
+
+* IA-32e 모드의 C 호출 규약과 보호 모드의 C 호출 규약 비교
+
+1. 파라미터를 전달할 때 레지스터를 우선 사용 : 정수 데이터의 경우 RDI, RSI, RDX, RCX, R8, R9 레지스터의 순서로 6개를 사용하며 실수의 경우에는 XMM0~7 레지스터의 순서로 모두 8개 사용, 파라미터 수가 정해진 레지스터의 수를 넘으면 보호 모드와 마찬가지로 스택 영역을 사용
+
+2. 레지스터 또는 스택에 파라미터를 삽입하는 순서 : 보호 모드에서는 파라미터 리스트의 오른쪽에서 왼쪽으로 이동하면서 파라미터를 스택에 삽입한 것과 달리 64비트 모드에서는 파라미터 리스트의 왼쪽에서 오른쪽으로 이동하면서 레지스터나 스택을 사용해 삽입
+
+3. 함수의 반환 값으로 사용하는 레지스터 : 보호 모드는 EAX 레지스터를 사용하여 반환 값 처리하지만 64비트 모드는 정수 타입이면 RAX, RDX 레지스터 사용하고 실수 타입은 XMM0 또는 XMM0, XMM1 레지스터 사용
+
+* 비교적 스택을 덜 사용하는 구조로 변환함
+
+### 키보드 컨트롤러에서 키 값 읽기
+
+* 스캔 코드 : 키보드 키가 눌리거나 떨어질 때마다 키 별로 할당된 특수한 값, 이를 키보드 컨트롤러에 저장함
+* 별다른 커맨드를 키보드 컨트롤러로 보내지 않으면, 키보드 컨트롤러의 출력 버퍼에는 키보드 또는 마우스에서 수신된 데이터 저장
+    * 상태 레지스터를 읽어서 출력 버퍼에 데이터가 있는지 확인한 후, 데이터가 있다면 출력 버퍼를 읽어서 저장
+
+```c
+BYTE kGetKeyboardScanCode( void )
+{
+    while( kIsOutputBufferFull() == FALSE )
+    {
+        ;
+    }
+    return kInPortByte( 0x60 );  // 출력 버퍼(포트 0x60에서 키 값(스캔 코드)를 읽어서 반환)
+}
+```
+
+### A20 게이트 활성화와 프로세스 리셋
+
+* A20 게이트 비트와 프로세서 리셋 비트는 출력 포트의 비트 1과 비트 0에 있고 키보드 컨트롤러의 출력 포트는 0xD0, 0xD1 커맨드로 접근 가능
+
+```c
+void kEnableA20Gate( void )
+{
+    BYTE bOutputPortData;
+    int i;
+
+    // 컨트롤 레지스터(포트 0x64)에 키보드 컨트롤러의 출력 포트 값을 읽는 커맨드(0xD0) 전송
+    kOutPortByte( 0x64, 0xD0 );
+
+    // 출력 포트의 데이터를 기다렸다가 읽음
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        if( kIsOutputBufferFull() == TRUE )
+        {
+            break;
+        }
+    }
+    bOutputPortData = kInPortByte( 0x60 );
+
+    // A20 게이트 비트 설정
+    bbOutputPortData != 0x02;
+
+    // 입력 버퍼(포트 0x60)에 데이터가 비어있으면 출력 포트에 값을 쓰는 커맨드와 출력 포트 데이터 전송
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        if( kIsInputBufferFull() == FALSE )
+        {
+            break;
+        }
+    }
+
+    // 커맨드 레지스터(0x64)에 출력 포트 설정 커맨드(0xD1) 전달
+    kOutPortByte( 0x64, 0xD1 );
+    // 입력 버퍼(0x60)에 A20 게이트 비트가 1로 설정된 값을 전달
+    kOutPortByte( 0x60, bOutputPortData )
+}
+```
+
+### 키보드 LED 상태 제어
+
+* LED 상태를 변경하는 방법은 커맨드 포트를 사용하지 않고 입력 버퍼만을 사용
+
+1. 입력 버퍼(0x60)로 0xED 커맨드를 전송해서 키보드에 LED 상태 데이터가 전송될 것임을 미리 알림
+2. ACK를 확인하고 나서 LED 상태를 나타내는 데이터를 전송
+3. LED 상태를 나타내는 데이터 전송
+4. 키보도를 데이터를 전송하고 나서 확인
+
+* LED 상태 데이터는 1바이트 중 하위 3비트만 사용하며 Caps Lock은 비트 2, Num Lock은 비트 1, Scroll Lock은 비트 0에 할당되어 있음
+
+```c
+BOOL kChangeKeyboardLED( BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn )
+{
+    int i, j;
+    // 키보드에 LED 변경 커맨드 전송하고 커맨드가 처리될 떄까지 대기
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        // 입력 버퍼(0x60)가 비었으면 커맨드 전송 가능
+        if( kIsInputBufferFull() == FALSE )
+        {
+            break;
+        }
+    }
+
+    // 입력 버퍼(포트 0x60)로 LED 상태 변경 커맨드(0xED) 전송
+    kOutPortByte( 0x60, 0xED );
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        // 입력 버퍼(포트 0x60)가 비어 있으면 키보드가 커맨드를 가져간 것임
+        if( kIsInputBufferFull() == FALSE )
+        {
+            break;
+        }
+    }
+
+    // 키보드가 LED 상태 변경 커맨드를 가져갔으므로 ACK가 올 떄까지 대기
+    for( j = 0 ; j < 100 ; j++ )
+    {
+        for( i = 0 ; i < 0xFFFF ; i++ )
+        {
+            // 출력 버퍼(포트 0x60)가 차 있으면 데이터를 읽을 수 있음
+            if( kIsOutputBufferFull() == TRUE )
+            {
+                break;
+            }
+        }
+
+        // 출력 버퍼(포트 0x60)에서 가져온 데이터가 ACK(0xFA)이면 성공
+        if( kInPortByte( 0x60 ) == 0xFA )
+        {
+            break;
+        }
+    }
+
+    if( j >= 100 )
+    {
+        return FALSE;
+    }
+
+    // LED 변경 값을 키보드로 전송하고 데이터가 처리가 완료될 떄까지 대기
+    kOutPortByte( 0x60, ( bCapsLockOn << 2 ) | ( bNumLockOn << 1 ) | bScrollLockOn );
+    for( i = 0 ; i < 0xFFFF ; i++ )
+    {
+        // 입력 버퍼(포트 0x60)가 비어 있으면 키보드가 커맨드를 가져간 것임
+        if( kIsInputBufferFull() == FALSE )
+        {
+            break;
+        }
+    }
+
+    // 키보드가 LED 데이터를 가져갔으므로 ACK가 올 떄까지 대기
+    for( j = 0 ; j < 100 ; j++ )
+    {
+        for( i = 0 ; i < 0xFFFF ; i++ )
+        {
+            // 출력 버퍼(포트 0x60)가 차 있으면 데이터를 읽을 수 있음
+            if( kIsOutputBufferFull() == TRUE )
+            {
+                break;
+            }
+        }
+
+        // 출력 버퍼(포트 0x60)에서 읽은 데이터가 ACK(0xFA)이면 성공
+        if( kInPortByte( 0x60 ) == 0xFA )
+        {
+            break;
+        }
+    }
+
+    if( j >= 100 )
+    {
+        return FALSE;
+    }
+
+    return TRUE;
+}
