@@ -99,7 +99,7 @@ BOOL kActivateKeyboard( void )
     // 컨트롤 레지스터(포트 0x64)에 키보드 활성화 커맨드(0xAE)를 전달하여 키보드 디바이스 활성화
     kOutPortByte( 0x64, 0xAE );
     
-    // 입력 버퍼(포트 0x60)가 빌 떄까지 기다렸다가 키보드에 활성화 커맨드를 전송
+    // 입력 버퍼(포트 0x60)가 빌 때까지 기다렸다가 키보드에 활성화 커맨드를 전송
     // 0xFFFF만큼 루프를 수행할 시간이면 충분이 커맨드가 전송될 수 있음
     // 0xFFFF 루프를 수행한 이후에도 입력 버퍼(포트 0x60)가 비지 않으면 무시하고 전송
     for( i = 0 ; i < 0xFFFF ; i++ )
@@ -214,7 +214,7 @@ void kEnableA20Gate( void )
     bOutputPortData = kInPortByte( 0x60 );
 
     // A20 게이트 비트 설정
-    bbOutputPortData != 0x02;
+    bOutputPortData != 0x02;
 
     // 입력 버퍼(포트 0x60)에 데이터가 비어있으면 출력 포트에 값을 쓰는 커맨드와 출력 포트 데이터 전송
     for( i = 0 ; i < 0xFFFF ; i++ )
@@ -228,7 +228,7 @@ void kEnableA20Gate( void )
     // 커맨드 레지스터(0x64)에 출력 포트 설정 커맨드(0xD1) 전달
     kOutPortByte( 0x64, 0xD1 );
     // 입력 버퍼(0x60)에 A20 게이트 비트가 1로 설정된 값을 전달
-    kOutPortByte( 0x60, bOutputPortData )
+    kOutPortByte( 0x60, bOutputPortData );
 }
 ```
 
@@ -247,7 +247,7 @@ void kEnableA20Gate( void )
 BOOL kChangeKeyboardLED( BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn )
 {
     int i, j;
-    // 키보드에 LED 변경 커맨드 전송하고 커맨드가 처리될 떄까지 대기
+    // 키보드에 LED 변경 커맨드 전송하고 커맨드가 처리될 때까지 대기
     for( i = 0 ; i < 0xFFFF ; i++ )
     {
         // 입력 버퍼(0x60)가 비었으면 커맨드 전송 가능
@@ -268,7 +268,7 @@ BOOL kChangeKeyboardLED( BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn )
         }
     }
 
-    // 키보드가 LED 상태 변경 커맨드를 가져갔으므로 ACK가 올 떄까지 대기
+    // 키보드가 LED 상태 변경 커맨드를 가져갔으므로 ACK가 올 때까지 대기
     for( j = 0 ; j < 100 ; j++ )
     {
         for( i = 0 ; i < 0xFFFF ; i++ )
@@ -292,7 +292,7 @@ BOOL kChangeKeyboardLED( BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn )
         return FALSE;
     }
 
-    // LED 변경 값을 키보드로 전송하고 데이터가 처리가 완료될 떄까지 대기
+    // LED 변경 값을 키보드로 전송하고 데이터가 처리가 완료될 까지 대기
     kOutPortByte( 0x60, ( bCapsLockOn << 2 ) | ( bNumLockOn << 1 ) | bScrollLockOn );
     for( i = 0 ; i < 0xFFFF ; i++ )
     {
@@ -303,7 +303,7 @@ BOOL kChangeKeyboardLED( BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn )
         }
     }
 
-    // 키보드가 LED 데이터를 가져갔으므로 ACK가 올 떄까지 대기
+    // 키보드가 LED 데이터를 가져갔으므로 ACK가 올 때까지 대기
     for( j = 0 ; j < 100 ; j++ )
     {
         for( i = 0 ; i < 0xFFFF ; i++ )
