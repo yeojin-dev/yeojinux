@@ -3,6 +3,7 @@
 ## Build
 
 ```shell
+$ export PATH=$PATH:/opt/cross/bin
 $ make
 ```
 
