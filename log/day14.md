@@ -80,3 +80,39 @@
 * IST(Interrupt Stack Table) : 인터럽트 처리를 위한 테이블로 최대 7개의 스택 저장, 기존 스택 스위칭 기법과는 달리 무조건 스택 스위칭이 발생
     * IDT 테이블의 게이트 디스크립터를 찾아 IST 필드를 1~7 사이의 값으로 설정
     * 인터럽트, 예외가 발생했을 때 핸들러의 스택에서 수행 중이던 코드의 정보(CS, RIP 레지스터)와 스택의 정보(SS, RSP 레지스터)가 삽입됨
+
+### 프로세서와 태스크 상태 세그먼트, 태스크 디스크립터
+
+* TSS(Task Status Segment) : 태스크의 상태를 저장하는 영역으로, 프로세서의 상태-레지스터의 값들-을 저장하는 역할
+
+* 보호 모드의 TSS
+    * 보호 모드의 TSS는 FPU에 관련된 레지스터를 제외하는 프로세서의 모든 레지스터를 저장(하드웨어 멀티태스킹 구현에서 핵심 역할)
+    * 권한별 스택 정보를 저장하는 역할과 유저 앱이 I/O 포트에 접근하는 것을 제한하는 I/O 맵 어드레스의 주소를 지정하는 역할
+
+![보호 모드의 TSS](https://img1.daumcdn.net/thumb/R720x0.q80/?scode=mtistory2&fname=http%3A%2F%2Fcfs2.tistory.com%2Fupload_control%2Fdownload.blog%3Ffhandle%3DYmxvZzEyNDIxQGZzMi50aXN0b3J5LmNvbTovYXR0YWNoLzAvMjUucG5n)
+
+* IA-32e 모드의 TSS
+    * 레지스터의 크기가 커지면서 기존 104바이트에는 모든 레지스터 저장 불가능
+    * 7개의 IST 정보를 저장하는 역할로 변경
+    * 권한별 스택 정보 저장, I/O 맵 기준 주소 저장 기능은 그대로
+
+![IA-32e 모드의 TSS](https://img1.daumcdn.net/thumb/R720x0.q80/?scode=mtistory2&fname=http%3A%2F%2Fcfile10.uf.tistory.com%2Fimage%2F0248C13B510013D622B66D)
+
+* 예약된 영역은 모드 0으로 설정한다는 뜻
+* IST 기능을 사용하면 기존 스택 스위칭 방식에서 사용되는 RSP0~2 필드는 사용하지 않음
+* I/O 맵 기준 주소 필드는 I/O 제한을 설정하는 비트맵(I/O Permission Bit Map) 시작 어드레스
+
+#### TSS 디스크립터, LTR
+
+* TSS 세그먼트는 단순한 데이터이며 TSS 디스크립터와 LTR 어셈블리 명령어를 통해 프로세서에 TSS 세그먼트에 대한 정보를 알려줌
+
+![TSS 디스크립터](https://img1.daumcdn.net/thumb/R720x0.q80/?scode=mtistory2&fname=http%3A%2F%2Fcfile25.uf.tistory.com%2Fimage%2F2430984E587A432B17D3D7)
+
+* B 필드는 Busy 필드로 1로 설정되면 현재 TSS 디스크립터가 가리키는 태스크가 실행 중임을 나타냄
+* GDT 테이블에 위와 같은 구조의 TSS 디스크립터 생성 후 프로세서에 현재 수행 중인 태스크의 TSS가 어떤 것인지 알려줌
+    * LTR 명령어를 사용하며 이는 GDT 테이블 내의 TSS 디스크립터의 오프셋을 사용
+
+#### I/O Permission Bit Map
+
+* 현재 수행 중인 코드의 특권 레벨(CPL)과 RFLAGS 레지스터에 설정된 I/O 레벨(IOPL)의 값을 비교하여 CPL이 더 낮으면 1로 설정된 포트 어드레스의 I/O 제한
+* 9번 I/O 포트에 접근하는 것을 막고 싶다면 3바이트 할당 후 마지막 바이트를 0xFF로 설정, 비트맵의 2번째 바이트의 비트 2를 1로 설정하고 RFLAGS 레지스터의 IOPL 필드를 최고 특권 레벨인 Ring 0로 설정
