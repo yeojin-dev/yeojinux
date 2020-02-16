@@ -338,3 +338,18 @@ void kSetGDTEntry16( GDTENTRY16* pstEntry, QWORD qwBaseAddress, DWORD dwLimit,
     pstEntry->dwReserved = 0;
 }
 ```
+
+### TSS 세그먼트 초기화
+
+* MINT64 OS는 I/O 맵을 사용하지 않기 때문에 I/O 맵 기준 주소를 TSS 디스크립터에서 설정한 Limit 필드 값보다 크게 설정
+
+```c
+// TSS 세그먼트의 정보를 초기화
+void kInitializeTSSSegment( TSSSEGMENT* pstTSS )
+{
+    kMemSet( pstTSS, 0, sizeof( TSSSEGMENT ) );  // 메모리 영역을 특정 값으로 초기화하는 함수
+    pstTSS->qwIST[ 0 ] = IST_STARTADDRESS + IST_SIZE;
+    // IO 를 TSS의 limit 값보다 크게 설정함으로써 IO Map을 사용하지 않도록 함
+    pstTSS->wIOMapBaseAddress = 0xFFFF;
+}
+```
