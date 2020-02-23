@@ -353,3 +353,44 @@ void kInitializeTSSSegment( TSSSEGMENT* pstTSS )
     pstTSS->wIOMapBaseAddress = 0xFFFF;
 }
 ```
+
+### GDT 테이블 교체와 TSS 세그먼트 로드
+
+* GDT 테이블 교체는 LGDT 명령어를 사용해서 GDT 정보를 수정하면 가능
+
+* TSS 세그먼트 로드 변경
+    * x86 프로세서에는 태스크에 관련된 정보를 저장하는 태스크 레지스터(TR)가 있음
+    * TR 레지스터는 현재 프로세서가 수행 중인 태스크 정보를 관리하며 GDT 테이블 내에 TSS 세그먼트 디스크립터의 오프셋이 저장되어 있음
+    * LTR 명령어를 사용하여 GDT 테이블 내의 TSS 세그먼트 인덱스인 0x18을 지정하면 TSS 세그먼트를 프로세서에 설정
+
+```assembly
+; GDTR 레지스터에 GDT 테이블을 설정
+;   PARAM: GDT 테이블의 정보를 저장하는 자료구조의 어드레스
+kLoadGDTR:
+    lgdt [ rdi ]    ; 파라미터 1(GDTR 어드레스)를 프로세서에 로드하여 GDT 테이블 설정
+    ret
+
+; TR 레지스터에 TSS 세그먼트 디스크립터 설정
+;   PARAM: TSS 세그먼트 디스크립터의 오프셋
+kLoadTR:
+    ltr di          ; 파라미터 1(TSS 세그먼트 디스크립터의 오프셋)을 프로세서에 설정하여 TSS 세그먼트를 로드
+    ret
+```
+
+```c
+void kLoadGDTR( QWORD qwGDTRAddress );
+void kLoadTR( WORD wTSSSegmentOffset );
+```
+
+* GDT 테이블을 갱신하고 TSS 세그먼트를 프로세서에 로드하는 코드
+
+```c
+void Main( void )
+{
+    // 생략
+    kInitializeGDTTableAndTSS();
+    kLoadGDTR( 0x142000 );
+    kLoadTR( 0x18 );
+    // 생략
+}
+```
