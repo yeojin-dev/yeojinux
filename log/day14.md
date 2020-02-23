@@ -394,3 +394,128 @@ void Main( void )
     // 생략
 }
 ```
+
+## IDT 테이블 생성, 인터럽트, 예외 핸들러 등록
+
+### IDT 테이블 생성
+
+* IDT 테이블은 IDT 게이트 디스크립터로 구성
+    * IDT 게이트 디스크립터는 세그먼트 디스크립터와 구조적으로 다르지만 타입, DPL 그리고 P 필드의 위치가 같고 더 간단함
+
+```c
+// 조합에 사용할 기본 매크로
+#define IDT_TYPE_INTERRUPT      0x0E
+#define IDT_TYPE_TRAP           0x0F
+#define IDT_FLAGS_DPL0          0x00
+#define IDT_FLAGS_DPL1          0x20
+#define IDT_FLAGS_DPL2          0x40
+#define IDT_FLAGS_DPL3          0x60
+#define IDT_FLAGS_P             0x80
+#define IDT_FLAGS_IST0          0
+#define IDT_FLAGS_IST1          1
+
+// 실제로 사용할 매크로
+#define IDT_FLAGS_KERNEL        ( IDT_FLAGS_DPL0 | IDT_FLAGS_P )
+#define IDT_FLAGS_USER          ( IDT_FLAGS_DPL3 | IDT_FLAGS_P )
+
+// 1바이트로 정렬
+#pragma pack ( push, 1 )
+
+// IDT 게이트 디스크립터 구조체
+typedef struct kIDTEntryStruct
+{
+    WORD wLowerBaseAddress;
+    WORD wSegmentSelector;
+    // 3비트 IST, 5비트 0
+    BYTE bIST;
+    // 4비트 Type, 1비트 0, 2비트 DPL, 1비트 P
+    BYTE bTypeAndFlags;
+    WORD wMiddleBaseAddress;
+    DWORD dwUpperBaseAddress;
+    DWORD dwReserved;
+} IDTENTRY;
+
+#pragma pack ( pop )
+```
+
+```c
+void kSetIDTEntry( IDTENTRY* pstEntry, void* pvHandler, WORD wSelector, 
+        BYTE bIST, BYTE bFlags, BYTE bType )
+{
+    pstEntry->wLowerBaseAddress = ( QWORD ) pvHandler & 0xFFFF;
+    pstEntry->wSegmentSelector = wSelector;
+    pstEntry->bIST = bIST & 0x3;
+    pstEntry->bTypeAndFlags = bType | bFlags;
+    pstEntry->wMiddleBaseAddress = ( ( QWORD ) pvHandler >> 16 ) & 0xFFFF;
+    pstEntry->dwUpperBaseAddress = ( QWORD ) pvHandler >> 32;
+    pstEntry->dwReserved = 0;
+}
+```
+
+* pstEntry 파라미터 : 값을 저장한 IDT 게이트 디스크립터의 어드레스를 넘겨주는 용도
+* pvHandler 파라미터 : 해당 인터럽트 또는 예외가 발생했을 때 실행할 핸들러 함수의 어드레스
+* wSelector 파라미터 : 인터럽트, 예외가 발생했을 때 교체할 CS 세그먼트 셀렉터의 값
+    * 핸들러 함수는 커널 모드에서 동작하므로 커널 코드 세그먼트인 0x08 사용
+* bIST 파라미터 : 인터럽트, 예외가 발생했을 때 IST 중 어느 것을 사용할지를 설정하는 용도로 사용
+    * MINT64 OS는 1번 IST만 사용하므로 1로 설정
+* bFlags, bType : 권한, 게이트 타입 설정
+
+```c
+// IDT 테이블을 초기화
+void kInitializeIDTTables( void )
+{
+    IDTR* pstIDTR;
+    IDTENTRY* pstEntry;
+    int i;
+        
+    // IDTR의 시작 어드레스
+    pstIDTR = ( IDTR* ) IDTR_STARTADDRESS;
+    // IDT 테이블의 정보 생성
+    pstEntry = ( IDTENTRY* ) ( IDTR_STARTADDRESS + sizeof( IDTR ) );
+    pstIDTR->qwBaseAddress = ( QWORD ) pstEntry;
+    pstIDTR->wLimit = IDT_TABLESIZE - 1;
+    
+    // 0~99까지 벡터를 모두 DummyHandler로 연결
+    for( i = 0 ; i < IDT_MAXENTRYCOUNT ; i++ )
+    {
+        kSetIDTEntry( &( pstEntry[ i ] ), kDummyHandler, 0x08, IDT_FLAGS_IST1, 
+            IDT_FLAGS_KERNEL, IDT_TYPE_INTERRUPT );
+    }
+}
+
+// 임시 예외 또는 인터럽트 핸들러
+void kDummyHandler( void )
+{
+    kPrintString( 0, 0, "====================================================" );
+    kPrintString( 0, 1, "          Dummy Interrupt Handler Execute~!!!       " );
+    kPrintString( 0, 2, "           Interrupt or Exception Occur~!!!!        " );
+    kPrintString( 0, 3, "====================================================" );
+
+    while( 1 ) ;
+}
+```
+
+### IDT 테이블 로드
+
+* IDTR 레지스터에 LIDT 명령어를 사용하여 IDT 테이블에 대한 정보를 갖고 있는 자료구조의 어드레스를 넘겨줌으로써 프로세서에 로드할 수 있음
+
+```assembly
+; IDTR 레지스터에 IDT 테이블을 설정
+;   PARAM: IDT 테이블의 정보를 저장하는 자료구조의 어드레스
+kLoadIDTR:
+    lidt [ rdi ]    ; 파라미터 1(IDTR의 어드레스)를 프로세서에 로드하여 IDT 테이블을 설정
+    ret
+
+// C 함수 선언
+void kLoadIDTR( QWORD qwIDTRAddress );
+```
+
+```c
+void Main( void )
+{
+    // 생략
+    kInitializeIDTTables();
+    kLoadIDTR( 0x1420A0 );
+    // 생략
+}
+```
